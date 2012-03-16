@@ -1,14 +1,13 @@
 #!/usr/bin/env python
 
-from flask import Flask, render_template, url_for, abort
-import os, os.path, md5
+from flask import Flask, abort
+import os
 import pygit2 as git
-from time import gmtime, strftime
-from urllib import urlencode
 
 REPO_NAME = os.getenv('HOME') + "/git/libgit2/"
 
 app = Flask(__name__)
+repo = git.Repository(REPO_NAME)
 
 @app.route('/')
 def serve_index():
@@ -16,8 +15,6 @@ def serve_index():
 
 @app.route('/<path:filename>')
 def serve(filename):
-    print("opening " + REPO_NAME)
-    repo = git.Repository(REPO_NAME)
     oid = repo.lookup_reference('refs/heads/gh-pages').resolve().oid
     tree = repo[oid].tree
     parts = filename.split('/')
