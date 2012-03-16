@@ -1,50 +1,68 @@
 #!/usr/bin/env python
 
-from flask import Flask, abort, Response
+from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 import os
 import pygit2 as git
 
 REPO_NAME = os.getenv('HOME') + "/git/libgit2/"
-
-app = Flask(__name__)
+REF_NAME = 'refs/heads/gh-pages'
 repo = git.Repository(REPO_NAME)
 
-def guess_type(filename):
-    if filename.endswith('.html') or filename.endswith('.htm'):
-        return "text/html"
-    elif filename.endswith('.css'):
-        return 'text/css'
-    elif filename.endswith('.js'):
-        return 'application/javascript'
-    else:
-        return 'application/octet-stream'
+class git_httpd(BaseHTTPRequestHandler):
+    def guess_type(self, filename):
+        if filename.endswith('.html') or filename.endswith('.htm'):
+            return "text/html"
+        elif filename.endswith('.css'):
+            return 'text/css'
+        elif filename.endswith('.js'):
+            return 'application/javascript'
+        else:
+            return 'application/octet-stream'
 
-@app.route('/')
-def serve_index():
-    return serve('index.html')
+    def not_found(self):
+        self.send_response(404)
+        self.send_header('Content-Type', 'text/plain')
+        self.end_headers()
+        o = self.wfile
+        o.write('404 File Not Found')
 
-@app.route('/<path:filename>')
-def serve(filename):
-    oid = repo.lookup_reference('refs/heads/gh-pages').resolve().oid
-    tree = repo[oid].tree
-    parts = filename.split('/')
-    try:
-        while len(parts) > 1:
-            dirname = parts.pop(0)
-            print("dirname " + dirname)
-            tree = tree[dirname].to_object()
-    except KeyError:
-        abort(404)
+    def send_blob(self, filename, object):
+        self.send_response(200)
+        self.send_header('Content-Type', self.guess_type(filename))
+        self.end_headers()
+        o = self.wfile
+        o.write(object.data)
 
-    last = parts.pop(0)
-    if last == '':
-        last = 'index.html'
+    def do_GET(self):
+        if self.path == '/':
+            self.path = 'index.html'
 
-    try:
-        return Response(tree[last].to_object().data, mimetype=guess_type(last))
-    except KeyError:
-        abort(404)
+        oid = repo.lookup_reference(REF_NAME).resolve().oid
+        tree = repo[oid].tree
+        parts = self.path.rsplit('/')
+        print parts
+        try:
+            while len(parts) > 1:
+                dirname = parts.pop(0)
+                # /one/two is ['', 'one', 'two']
+                if dirname == '':
+                    continue
 
-if __name__ == "__main__":
-    app.debug = True
-    app.run()
+                tree = tree[dirname].to_object()
+        except KeyError:
+            return self.not_found()
+
+        last = parts.pop(0)
+        if last == '':
+            last = 'index.html'
+
+        try:
+            return self.send_blob(last, tree[last].to_object())
+        except KeyError:
+            return self.not_found()
+
+try:
+    server = HTTPServer(('', 8080), git_httpd)
+    server.serve_forever()
+except KeyboardInterrupt:
+    server.socket.close()
