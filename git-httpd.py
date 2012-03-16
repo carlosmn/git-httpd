@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from flask import Flask, abort
+from flask import Flask, abort, Response
 import os
 import pygit2 as git
 
@@ -8,6 +8,16 @@ REPO_NAME = os.getenv('HOME') + "/git/libgit2/"
 
 app = Flask(__name__)
 repo = git.Repository(REPO_NAME)
+
+def guess_type(filename):
+    if filename.endswith('.html') or filename.endswith('.htm'):
+        return "text/html"
+    elif filename.endswith('.css'):
+        return 'text/css'
+    elif filename.endswith('.js'):
+        return 'application/javascript'
+    else:
+        return 'application/octet-stream'
 
 @app.route('/')
 def serve_index():
@@ -31,7 +41,7 @@ def serve(filename):
         last = 'index.html'
 
     try:
-        return tree[last].to_object().data
+        return Response(tree[last].to_object().data, mimetype=guess_type(last))
     except KeyError:
         abort(404)
 
