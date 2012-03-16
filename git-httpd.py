@@ -18,10 +18,13 @@ def serve(filename):
     oid = repo.lookup_reference('refs/heads/gh-pages').resolve().oid
     tree = repo[oid].tree
     parts = filename.split('/')
-    while len(parts) > 1:
+    try:
+        while len(parts) > 1:
             dirname = parts.pop(0)
             print("dirname " + dirname)
             tree = tree[dirname].to_object()
+    except KeyError:
+        abort(404)
 
     last = parts.pop(0)
     if last == '':
