@@ -18,8 +18,7 @@
 #PERFORMANCE OF THIS SOFTWARE.
 
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
-import mimetypes
-import os
+import mimetypes, os
 import pygit2 as git
 
 REPO_NAME = os.getenv('HOME') + "/git/libgit2/"
@@ -42,7 +41,7 @@ class git_httpd(BaseHTTPRequestHandler):
         self.send_header('Content-Type', type)
         self.end_headers()
         o = self.wfile
-        o.write(entry.to_object().data)
+        o.write(repo[entry.oid].data)
 
     def do_GET(self):
         if self.path == '/':
@@ -58,7 +57,7 @@ class git_httpd(BaseHTTPRequestHandler):
                 if dirname == '':
                     continue
 
-                tree = tree[dirname].to_object()
+                tree = repo[tree[dirname].oid]
         except KeyError:
             return self.not_found()
 
