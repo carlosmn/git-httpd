@@ -16,7 +16,7 @@ get '*' do |path|
   tree = repo.lookup(commit.tree.oid)
   parts = path.split('/').reject! { |str| str.empty? }
 
-  if parts.nil? then parts = ['index.html'] end
+  parts = parts.nil? ? ['index.html'] : parts
 
   parts.each { |n|
     entry = tree[n]
