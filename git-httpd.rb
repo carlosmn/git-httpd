@@ -8,16 +8,15 @@ require 'mime/types'
 repo = Rugged::Repository.new('/home/carlos/git/libgit2')
 
 get '*' do |path|
-  parts = path.split('/')[1:]
   ref = Rugged::Reference.lookup(repo, 'refs/heads/gh-pages')
   commit = repo.lookup(ref.target)
   tree = repo.lookup(commit.tree.oid)
+  parts = path.split('/').reject! { |str| str.empty? }
 
-  if parts.empty? then parts = ['index.html'] end
+  if parts.nil? then parts = ['index.html'] end
 
   puts parts.inspect
   parts.each { |n|
-    if n == "" then next end
     entry = tree[n]
     if entry == nil
       halt 404, ""
