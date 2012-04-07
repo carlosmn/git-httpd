@@ -5,17 +5,19 @@ require 'sinatra'
 require 'rugged'
 require 'mime/types'
 
-repo = Rugged::Repository.new('/home/carlos/git/libgit2')
+REPO_PATH = ENV['HOME'] + '/git/libgit2'
+REF_NAME = 'refs/heads/gh-pages'
+
+repo = Rugged::Repository.new(REPO_PATH)
 
 get '*' do |path|
-  ref = Rugged::Reference.lookup(repo, 'refs/heads/gh-pages')
+  ref = Rugged::Reference.lookup(repo, REF_NAME)
   commit = repo.lookup(ref.target)
   tree = repo.lookup(commit.tree.oid)
   parts = path.split('/').reject! { |str| str.empty? }
 
   if parts.nil? then parts = ['index.html'] end
 
-  puts parts.inspect
   parts.each { |n|
     entry = tree[n]
     if entry == nil
