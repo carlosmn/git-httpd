@@ -11,8 +11,7 @@ REF_NAME = 'refs/heads/gh-pages'
 repo = Rugged::Repository.new(REPO_PATH)
 
 get '*' do |path|
-  ref = Rugged::Reference.lookup(repo, REF_NAME)
-  commit = repo.lookup(ref.target)
+  commit = repo.lookup(repo.refs(REF_NAME).first.target)
   tree = repo.lookup(commit.tree.oid)
   parts = path.split('/').reject! { |str| str.empty? }
 
