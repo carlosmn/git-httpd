@@ -11,21 +11,18 @@ REF_NAME = 'refs/heads/gh-pages'
 repo = Rugged::Repository.new(REPO_PATH)
 
 get '*' do |path|
-  commit = repo.lookup(repo.refs(REF_NAME).first.target)
-  tree = repo.lookup(commit.tree.oid)
-  parts = path.split('/').reject! { |str| str.empty? }
+  commit = repo.lookup(repo.ref(REF_NAME).target)
+  path.slice!(0)
+  if path.empty?
+    path = 'index.html'
+  end
+  puts path
+  content = repo.file_at(commit.oid, path)
+  if content.nil?
+    halt 404, "404 Not Found"
+  end
 
-  parts = parts.nil? ? ['index.html'] : parts
-
-  parts.each { |n|
-    entry = tree[n]
-    if entry == nil
-      halt 404, ""
-    end
-    tree = repo.lookup(entry[:oid])
-  }
-
-  content_type MIME::Types.type_for(parts.last).first.content_type
+  content_type MIME::Types.type_for(path).first.content_type
   # tree is now the last object (could do with better naming)
-  tree.content
+  content
 end
