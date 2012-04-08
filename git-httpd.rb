@@ -23,6 +23,5 @@ get '*' do |path|
   end
 
   content_type MIME::Types.type_for(path).first.content_type
-  # tree is now the last object (could do with better naming)
   content
 end
