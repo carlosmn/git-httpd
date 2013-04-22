@@ -47,14 +47,14 @@ defmodule GitHttpd do
     { :ok, repo } = Repo.open(repo_path)
     { :ok, ref } = Ref.lookup(repo, refname)
     { :ok, ref } = Ref.resolve(ref)
-    { :ok, commit } = Object.lookup(repo, Ref.target(ref))
-    { :ok, tree } = Object.lookup(repo, Commit.tree_id(commit))
+    { :ok, commit } = Commit.lookup(repo, Ref.target(ref))
+    { :ok, tree } = Tree.lookup(repo, Commit.tree_id(commit))
     case Tree.bypath(tree, resolve_path(conn.path)) do
       { :error, _ } ->
         conn.status(404)
       { :ok, _, _, id, _ } ->
-        { :ok, obj } = Object.lookup(repo, id)
-        conn.resp_body(Blob.content(obj))
+        { :ok, blob } = Blob.lookup(repo, id)
+        conn.resp_body(Blob.content(blob))
     end
   end
 
