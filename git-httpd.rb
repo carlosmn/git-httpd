@@ -15,8 +15,10 @@ get '*' do |path|
   path.slice!(0)
   path = 'index.html' if path.empty?
 
+  entry = commit.tree.path path
   puts path
-  content = repo.file_at(commit.oid, path)
+  blob = repo.lookup entry[:oid]
+  content = blob.content
   halt 404, "404 Not Found" unless content
 
   content_type MIME::Types.type_for(path).first.content_type
