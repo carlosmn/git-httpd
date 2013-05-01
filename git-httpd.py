@@ -44,29 +44,16 @@ class git_httpd(BaseHTTPRequestHandler):
         o.write(repo[entry.oid].data)
 
     def do_GET(self):
-        if self.path == '/':
-            self.path = 'index.html'
+        if self.path[-1:] == '/': # catch trailing slahes
+            self.path += 'index.html'
 
-        oid = repo.lookup_reference(REF_NAME).resolve().oid
+        self.path = self.path[1:] # and remove the first one
+
+        oid = repo.lookup_reference(REF_NAME).resolve().target
         tree = repo[oid].tree
-        parts = self.path.rsplit('/')
         try:
-            while len(parts) > 1:
-                dirname = parts.pop(0)
-                # /one/two is ['', 'one', 'two']
-                if dirname == '':
-                    continue
-
-                tree = repo[tree[dirname].oid]
-        except KeyError:
-            return self.not_found()
-
-        last = parts.pop(0)
-        if last == '':
-            last = 'index.html'
-
-        try:
-            return self.send_blob(tree[last])
+            entry = tree[self.path]
+            return self.send_blob(entry)
         except KeyError:
             return self.not_found()
 
