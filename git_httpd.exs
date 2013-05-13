@@ -13,6 +13,12 @@ defmodule GitHttpd do
   alias :geef_tree, as: Tree
   alias :geef_blob, as: Blob
 
+  defrecord :ref, handle: nil, type: nil, target: nil do
+    def resolve(self) do
+      :geef_ref.resolve(self)
+    end
+  end
+
   config :dynamo, compile_on_demand: false
   config :server, port: 8080
 
@@ -46,10 +52,10 @@ defmodule GitHttpd do
   def service(conn) do
     { :ok, repo } = Repo.open(repo_path)
     { :ok, ref } = Ref.lookup(repo, refname)
-    { :ok, ref } = Ref.resolve(ref)
-    { :ok, commit } = Commit.lookup(repo, Ref.target(ref))
+    { :ok, ref } = ref.resolve()
+    { :ok, commit } = Commit.lookup(repo, ref.target)
     { :ok, tree } = Tree.lookup(repo, Commit.tree_id(commit))
-    case Tree.bypath(tree, resolve_path(conn.path)) do
+    case Tree.get(tree, resolve_path(conn.path)) do
       { :error, _ } ->
         conn.status(404)
       { :ok, _, _, id, _ } ->
