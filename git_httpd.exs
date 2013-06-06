@@ -5,19 +5,7 @@
 defmodule GitHttpd do
   use Dynamo
   use Dynamo.Router
-
-  alias :geef_repo, as: Repo
-  alias :geef_ref, as: Ref
-  alias :geef_object, as: Object
-  alias :geef_commit, as: Commit
-  alias :geef_tree, as: Tree
-  alias :geef_blob, as: Blob
-
-  defrecord :ref, handle: nil, type: nil, target: nil do
-    def resolve(self) do
-      :geef_ref.resolve(self)
-    end
-  end
+  use Geef
 
   config :dynamo, compile_on_demand: false
   config :server, port: 8080
@@ -50,10 +38,9 @@ defmodule GitHttpd do
   end
 
   def service(conn) do
-    { :ok, repo } = Repo.open(repo_path)
-    { :ok, ref } = Ref.lookup(repo, refname)
-    { :ok, ref } = ref.resolve()
-    { :ok, commit } = Commit.lookup(repo, ref.target)
+    { :ok, repo } = Repository.open(repo_path)
+    Reference[target: target] = Reference.lookup!(repo, refname) |> Reference.resolve!
+    { :ok, commit } = Commit.lookup(repo, target)
     { :ok, tree } = Tree.lookup(repo, Commit.tree_id(commit))
     case Tree.get(tree, resolve_path(conn.path)) do
       { :error, _ } ->
