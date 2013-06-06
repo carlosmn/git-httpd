@@ -45,7 +45,7 @@ defmodule GitHttpd do
     case Tree.get(tree, resolve_path(conn.path)) do
       { :error, _ } ->
         conn.status(404)
-      { :ok, _, _, id, _ } ->
+      { :ok, TreeEntry[id: id]} ->
         { :ok, blob } = Blob.lookup(repo, id)
         conn.resp_body(Blob.content(blob))
     end
