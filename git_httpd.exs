@@ -1,16 +1,11 @@
-# This is a bit of a pain to get running. The run-dynamo.sh script
-# makes it easier. You need a working version of dynamo somewhere and
-# geef built.
+#!/usr/bin/env elixir
 
-defmodule GitHttpd do
-  use Dynamo
-  use Dynamo.Router
-  use Geef
+# This is a bit of a pain to get running, as there is no global
+# dependency installation. Download cowboy, mimetypes and geef, and
+# point the run-ex.sh script there.
 
-  config :dynamo, compile_on_demand: false
-  config :server, port: 8080
-
-  defp repo_path do
+defmodule GitHttpd.Util do
+  def repo_path do
     case System.get_env("GIT_HTTPD_ROOT") do
       nil ->
         System.cwd!()
@@ -19,7 +14,7 @@ defmodule GitHttpd do
     end
   end
 
-  defp refname do
+  def refname do
     case System.get_env("GIT_HTTPD_BRANCH") do
       nil ->
         "refs/heads/gh-pages"
@@ -28,7 +23,7 @@ defmodule GitHttpd do
     end
   end
 
-  defp resolve_path(path) do
+  def resolve_path(path) do
     case String.next_codepoint(path) do
       { _, "" } ->
         "index.html"
@@ -36,24 +31,70 @@ defmodule GitHttpd do
         rest
     end
   end
+end
 
-  def service(conn) do
-    { :ok, repo } = Repository.open(repo_path)
-    Reference[target: target] = Reference.lookup!(repo, refname) |> Reference.resolve!
-    { :ok, commit } = Commit.lookup(repo, target)
-    { :ok, tree } = Tree.lookup(repo, Commit.tree_id(commit))
-    case Tree.get(tree, resolve_path(conn.path)) do
-      { :error, _ } ->
-        conn.status(404)
-      { :ok, TreeEntry[id: id]} ->
-        { :ok, blob } = Blob.lookup(repo, id)
-        conn.resp_body(Blob.content(blob))
+defmodule GitHttpd.Handler do
+  alias GitHttpd.Util
+  alias :cowboy_req, as: Req
+  use Geef
+
+  def init(_transport, req, []) do
+    case Repository.open(Util.repo_path) do
+      {:ok, repo} ->
+        {:ok, req, repo}
+      error = {:error, _} ->
+        error
     end
   end
 
+  def handle(req, repo) do
+    { path, req} = Req.path(req)
+    Reference[target: target] = Reference.lookup!(repo, Util.refname) |> Reference.resolve!
+    { :ok, commit } = Commit.lookup(repo, target)
+    { :ok, tree } = Tree.lookup(repo, Commit.tree_id(commit))
+    resolved_path = Util.resolve_path(path)
+    { status, body } =
+      case Tree.get(tree, resolved_path) do
+        { :error, _ } ->
+          {404, ""}
+        { :ok, TreeEntry[id: id] } ->
+          { :ok, blob } = Blob.lookup(repo, id)
+          { 200, Blob.content(blob) }
+      end
+    type =
+      case :mimetypes.filename(resolved_path) do
+        [h | _] -> h
+        mt -> mt
+      end
+
+    fields = [{"Content-Type", type}]
+    {:ok, req} = Req.reply(status, fields, body, req)
+    {:ok, req, repo}
+  end
+
+  def terminate(_reason, _req, repo) do
+    Repository.stop(repo)
+    :ok
+  end
 end
 
-GitHttpd.start_link
-GitHttpd.run
+defmodule GitHttpd.App do
+  alias :cowboy_router, as: Router
+
+  def start() do
+    :application.start(:crypto)
+    :application.start(:cowlib)
+    :application.start(:ranch)
+    :application.start(:cowboy)
+    :application.start(:mimetypes)
+
+    dispatch = Router.compile([
+      {:_, [{:_, GitHttpd.Handler, []}]}
+    ])
+    {:ok, _} = :cowboy.start_http(:http, 100, [port: 8080], [env: [dispatch: dispatch]])
+  end
+end
+
+GitHttpd.App.start()
 
 :timer.sleep(:infinity)
