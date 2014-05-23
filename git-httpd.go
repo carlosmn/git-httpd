@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"github.com/libgit2/git2go"
 	"io"
 	"log"
@@ -204,14 +205,20 @@ func NewGitFileSystemFromBranch(repo *git.Repository, branch string) (http.FileS
 }
 
 func main() {
+	var repoName, refName string
+
+	flag.StringVar(&repoName, "repo", ".", "repository path")
+	flag.StringVar(&refName, "ref", "refs/heads/gh-pages", "reference to serve")
+	flag.Parse();
+
 	var err error
-	repo, err := git.OpenRepository(".")
+	repo, err := git.OpenRepository(repoName)
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
 
-	fs, err := NewGitFileSystemFromBranch(repo, "refs/heads/gh-pages")
+	fs, err := NewGitFileSystemFromBranch(repo, refName)
 	if err != nil {
 		log.Fatal(err)
 		return
