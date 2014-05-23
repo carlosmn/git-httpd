@@ -1,65 +1,221 @@
 package main
 
 import (
-	"bytes"
-	"fmt"
+	"errors"
 	"github.com/libgit2/git2go"
 	"io"
-	"mime"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
-var repo *git.Repository
+type GitFile struct {
+	entry  *git.TreeEntry
+	blob   *git.Blob
+	offset int64
+}
 
-func handle(w http.ResponseWriter, r *http.Request) {
-	// normalize the path
-	path := r.URL.Path
-	if strings.HasSuffix(path, "/") {
-		path = strings.Join([]string{path, "index.html"}, "")
+type GitFileInfo struct {
+	entry *git.TreeEntry
+	obj   git.Object
+}
+
+func (v *GitFile) Close() error {
+	v.blob.Free()
+	v.blob = nil
+
+	return nil
+}
+
+func (v *GitFile) Read(out []byte) (int, error) {
+	data := v.blob.Contents()
+
+	n := copy(out, data[v.offset:])
+	v.offset += int64(n)
+
+	return n, nil
+}
+
+func (v *GitFile) Readdir(count int) ([]os.FileInfo, error) {
+	return nil, errors.New("I'm not a directory")
+}
+
+func (v *GitFile) Seek(offset int64, whence int) (int64, error) {
+	// whence values as raw ints, programming like it's 1990
+	switch whence {
+	case 0:
+		v.offset = offset
+	case 1:
+		v.offset += offset
+	case 2:
+		v.offset = v.blob.Size() + offset
+	default:
+		return 0, errors.New("invalid whence")
 	}
 
-	// grab the tree for the tip of the branch, this is a simple
-	// demo, so we use rev-parse. A real program would likely want
-	// to do the steps itself
-	obj, err := repo.RevparseSingle("refs/heads/gh-pages^{tree}")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	path = path[1:] // remove the leading slash
+	return v.offset, nil
+}
 
-	tree := obj.(*git.Tree)
-	entry, err := tree.EntryByPath(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
+func (v *GitFile) Stat() (os.FileInfo, error) {
+	return &GitFileInfo{
+		entry: v.entry,
+		obj:   v.blob,
+	}, nil
+}
 
-	blob, err := repo.LookupBlob(entry.Id)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+func (v *GitFileInfo) Name() string {
+	return v.entry.Name
+}
+
+func (v *GitFileInfo) Size() int64 {
+	// the real size for a "file", otherwise whatever
+	if blob, ok := v.obj.(*git.Blob); ok {
+		return blob.Size()
 	}
 
-	dot := strings.LastIndex(path, ".")
-	header := w.Header()
-	header["Content-Type"] = []string{mime.TypeByExtension(path[dot:])}
-	io.Copy(w, bytes.NewReader(blob.Contents()))
+	return 0
+}
+
+func (v *GitFileInfo) Mode() os.FileMode {
+	var mode os.FileMode
+
+	switch v.entry.Filemode {
+	case git.FilemodeBlob:
+		mode = 0
+	case git.FilemodeTree:
+		mode = os.ModeDir
+	}
+
+	return mode
+}
+
+func (v *GitFileInfo) ModTime() time.Time {
+	return time.Now()
+}
+
+func (v *GitFileInfo) IsDir() bool {
+	return v.Mode().IsDir()
+}
+
+func (v *GitFileInfo) Sys() interface{} {
+	return nil
+}
+
+type GitTree struct {
+	entry *git.TreeEntry
+	tree  *git.Tree
+}
+
+func (v *GitTree) Close() error {
+	v.tree.Free()
+	v.tree = nil
+
+	return nil
+}
+
+func (v *GitTree) Read(out []byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (v *GitTree) Readdir(count int) ([]os.FileInfo, error) {
+	return nil, errors.New("not implemented yet")
+}
+
+func (v *GitTree) Seek(offset int64, whence int) (int64, error) {
+	return 0, errors.New("what you wanna seek")
+}
+
+func (v *GitTree) Stat() (os.FileInfo, error) {
+	return &GitFileInfo{
+		entry: v.entry,
+		obj:   v.tree,
+	}, nil
+}
+
+type GitFileSystem struct {
+	repo *git.Repository
+	tree *git.Tree
+}
+
+func (v *GitFileSystem) Open(name string) (http.File, error) {
+	var err error
+	var entry *git.TreeEntry
+
+	if name == "/" {
+		entry = &git.TreeEntry{
+			Name:     "",
+			Type:     git.ObjectTree,
+			Filemode: git.FilemodeTree,
+			Id:       v.tree.Id(),
+		}
+	} else {
+		// for some reason we're asked for //index.html
+		for strings.HasPrefix(name, "/") {
+			name = name[1:]
+		}
+		if entry, err = v.tree.EntryByPath(name); err != nil {
+			return nil, err
+		}
+	}
+
+	if entry.Type == git.ObjectTree {
+		var tree *git.Tree
+
+		if tree, err = v.repo.LookupTree(entry.Id); err != nil {
+			return nil, err
+		}
+
+		return &GitTree{
+			entry: entry,
+			tree:  tree,
+		}, nil
+	}
+
+	var blob *git.Blob
+	if blob, err = v.repo.LookupBlob(entry.Id); err != nil {
+		return nil, err
+	}
+
+	return &GitFile{
+		entry: entry,
+		blob:  blob,
+	}, nil
+}
+
+func NewGitFileSystemFromBranch(repo *git.Repository, branch string) (http.FileSystem, error) {
+	var ref *git.Reference
+	var obj git.Object
+	var err error
+
+	if ref, err = repo.LookupReference(branch); err != nil {
+		return nil, err
+	}
+
+	if obj, err = ref.Peel(git.ObjectTree); err != nil {
+		return nil, err
+	}
+
+	return &GitFileSystem{
+		repo: repo,
+		tree: obj.(*git.Tree),
+	}, nil
 }
 
 func main() {
 	var err error
-	repo, err = git.OpenRepository(".")
+	repo, err := git.OpenRepository(".")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
+		log.Fatal(err)
 		return
 	}
 
-	http.HandleFunc("/", handle)
-	http.ListenAndServe(":8080", nil)
+	fs, err := NewGitFileSystemFromBranch(repo, "refs/heads/gh-pages")
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	log.Fatal(http.ListenAndServe(":8080", http.FileServer(fs)))
 }
