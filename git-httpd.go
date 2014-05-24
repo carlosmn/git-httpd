@@ -105,8 +105,10 @@ func (v *GitFileInfo) Sys() interface{} {
 }
 
 type GitTree struct {
+	repo  *git.Repository
 	entry *git.TreeEntry
 	tree  *git.Tree
+	idx   uint64
 }
 
 func (v *GitTree) Close() error {
@@ -121,7 +123,22 @@ func (v *GitTree) Read(out []byte) (int, error) {
 }
 
 func (v *GitTree) Readdir(count int) ([]os.FileInfo, error) {
-	return nil, errors.New("not implemented yet")
+	max := v.tree.EntryCount()
+	list := make([]os.FileInfo, 0, max)
+	for ; v.idx < max; v.idx++ {
+		entry := v.tree.EntryByIndex(v.idx)
+		obj, err := v.repo.Lookup(entry.Id)
+		if err != nil {
+			return nil, err
+		}
+
+		list = append(list, &GitFileInfo{
+			entry: entry,
+			obj:   obj,
+		})
+	}
+
+	return list, nil
 }
 
 func (v *GitTree) Seek(offset int64, whence int) (int64, error) {
@@ -169,6 +186,7 @@ func (v *GitFileSystem) Open(name string) (http.File, error) {
 		}
 
 		return &GitTree{
+			repo:  v.repo,
 			entry: entry,
 			tree:  tree,
 		}, nil
@@ -209,7 +227,7 @@ func main() {
 
 	flag.StringVar(&repoName, "repo", ".", "repository path")
 	flag.StringVar(&refName, "ref", "refs/heads/gh-pages", "reference to serve")
-	flag.Parse();
+	flag.Parse()
 
 	var err error
 	repo, err := git.OpenRepository(repoName)
