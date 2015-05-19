@@ -1,0 +1,8 @@
+[package]
+name = "git-httpd"
+version = "0.1.0"
+authors = ["Carlos Martín Nieto <cmn@dwim.me>"]
+
+[dependencies]
+hyper = "*"
+git2 = "0.2"
